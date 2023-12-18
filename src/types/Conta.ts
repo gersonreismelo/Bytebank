@@ -1,45 +1,50 @@
-import { Transacao } from "./Transacao.js";
-import { TipoTransacao } from "./TipoTransacao.js";
+import { Armazenador } from "./Armazenador.js";
+import { ValidaDebito, ValidaDeposito } from "./Decorators.js";
 import { GrupoTransacao } from "./GrupoTransacao.js";
+import { TipoTransacao } from "./TipoTransacao.js";
+import { Transacao } from "./Transacao.js";
 
-let saldo: number = JSON.parse(localStorage.getItem("saldo")) || 0;
-const transacoes: Transacao[] = JSON.parse(localStorage.getItem("transacoes"), (key: string, value: string) => {
-    if(key == "data") {
-        return new Date(value);
-    }
-    return value;
-}) || [];
+export class Conta {
+    protected nome: string;
+    protected saldo: number = Armazenador.obter<number>("saldo") || 0;
+    private transacoes: Transacao[] = Armazenador.obter<Transacao[]>(("transacoes"), (key: string, value: string) => {
+        if (key === "data") {
+            return new Date(value);
+        }
+        return value;
+    }) || [];
 
-function depositar(valor: number) {
-    if(valor <= 0) {
-        throw new Error("O valor depositado deve ser maior do que 0!");
-    }
-    saldo += valor;
-    localStorage.setItem("saldo", saldo.toString());
-}
-
-function debitar(valor: number) {
-    if(valor <= 0) {
-        throw new Error("O valor debitado deve ser maior do que 0!");
-    }
-    if(valor > saldo) {
-        throw new Error("O valor debitado deve ser menor que o saldo");
+    constructor(nome: string) {
+        this.nome = nome;
     }
 
-    saldo -= valor;
-    localStorage.setItem("saldo", saldo.toString());
-}
+    public getTitula(): string {
+        return this.nome
+    }
 
-const Conta = {
-    getSaldo(): number {
-        return saldo
-    },
-    getDataAcesso(): Date {
+    public getSaldo(): number {
+        return this.saldo
+    }
+
+    public getDataAcesso(): Date {
         return new Date();
-    },
-    getGrupoTransacoes(): GrupoTransacao[] {
+    }
+
+    @ValidaDeposito
+    private depositar(valor: number) {
+        this.saldo += valor;
+        Armazenador.salvar("saldo", this.saldo);
+    }
+
+    @ValidaDebito
+    private debitar(valor: number) {
+        this.saldo -= valor;
+        Armazenador.salvar("saldo", this.saldo);
+    }
+
+    public getGrupoTransacoes(): GrupoTransacao[] {
         const gruposTransacoes: GrupoTransacao[] = [];
-        const listaTransacoes: Transacao[] = structuredClone(transacoes);
+        const listaTransacoes: Transacao[] = structuredClone(this.transacoes);
         const transacoesOrdenadas: Transacao[] = listaTransacoes.sort((t1, t2) => t2.data.getTime() - t1.data.getTime());
         let labelAtualGrupoTransacao: string = "";
 
@@ -59,21 +64,34 @@ const Conta = {
         }
 
         return gruposTransacoes;
-    },
-    registrarTransacao(novaTransacao: Transacao): void {
+    }
+
+    public registrarTransacao(novaTransacao: Transacao): void {
         if(novaTransacao.tipoTransacao == TipoTransacao.DEPOSITO) {
-            depositar(novaTransacao.valor);
+            this.depositar(novaTransacao.valor);
         } else if(novaTransacao.tipoTransacao == TipoTransacao.TRANSFERENCIA || novaTransacao.tipoTransacao == TipoTransacao.PAGAMENTO_BOLETO){
-            debitar(novaTransacao.valor);
+            this.debitar(novaTransacao.valor);
             novaTransacao.valor *= -1;
         } else {
             throw new Error("Tipo de transação inválida!");
         }
 
-        transacoes.push(novaTransacao);
+        this.transacoes.push(novaTransacao);
         console.log(this.getGrupoTransacoes());
-        localStorage.setItem("transacoes", JSON.stringify(transacoes))
-    },
+        Armazenador.salvar("transacoes", this.transacoes)
+    }
 }
 
-export default Conta;
+export class ContaPremium extends Conta{
+    registrarTransacao(transacao: Transacao) {
+        if(transacao.tipoTransacao === TipoTransacao.DEPOSITO) {
+            console.log("Ganhou um bonús de 0.50 centavos");
+            transacao.valor =+ 0.5;
+        }
+        super.registrarTransacao(transacao);
+    }
+}
+
+const conta = new ContaPremium("Paralelepipedo da Silva");
+
+export default conta;
